@@ -1,20 +1,75 @@
 import cron from 'node-cron';
 import fs from 'fs/promises';
 import path from 'path';
+import Database from 'better-sqlite3';
 
 // Configurations
 const BING_ENDPOINT = 'https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt=en-US';
-const DB_FILE = path.join(process.cwd(), 'wallpapers.json');
+const DB_FILE = path.join(process.cwd(), 'wallpapers.db');
+const LEGACY_JSON_FILE = path.join(process.cwd(), 'wallpapers.json');
+
+const db = new Database(DB_FILE);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS wallpapers (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    copyright TEXT,
+    date TEXT NOT NULL,
+    url TEXT NOT NULL,
+    url_uhd TEXT NOT NULL,
+    fetchedAt TEXT NOT NULL
+  );
+`);
+
+const insertWallpaper = db.prepare(`
+  INSERT OR IGNORE INTO wallpapers (id, title, copyright, date, url, url_uhd, fetchedAt)
+  VALUES (?, ?, ?, ?, ?, ?, ?)
+`);
 
 /**
- * Ensures the database file exists without overwriting existing data.
+ * One-time migration: imports any existing data from wallpapers.json into SQLite,
+ * then removes the legacy file.
  */
-async function initializeDatabase() {
+async function migrateLegacyData() {
   try {
-    await fs.access(DB_FILE);
-  } catch {
-    await fs.writeFile(DB_FILE, JSON.stringify([], null, 2));
-    console.log('📁 Created wallpapers.json database file.');
+    const fileData = await fs.readFile(LEGACY_JSON_FILE, 'utf-8');
+    const records = JSON.parse(fileData);
+
+    if (!Array.isArray(records) || records.length === 0) {
+      await fs.unlink(LEGACY_JSON_FILE);
+      console.log('📁 No legacy data found in wallpapers.json, removed file.');
+      return;
+    }
+
+    const { count } = db.prepare('SELECT COUNT(*) AS count FROM wallpapers').get();
+    if (count > 0) {
+      console.log(`ℹ️ Database already has ${count} records. Skipping migration.`);
+      return;
+    }
+
+    const migrateAll = db.transaction((items) => {
+      for (const item of items) {
+        insertWallpaper.run(
+          item.id,
+          item.title,
+          item.copyright ?? null,
+          item.date,
+          item.url,
+          item.url_uhd,
+          item.fetchedAt
+        );
+      }
+    });
+
+    migrateAll(records);
+    await fs.unlink(LEGACY_JSON_FILE);
+
+    console.log(`📁 Migrated ${records.length} records from wallpapers.json into wallpapers.db.`);
+  } catch (error) {
+    if (error.code !== 'ENOENT') {
+      console.error('❌ Failed to migrate legacy data:', error.message);
+    }
   }
 }
 
@@ -49,21 +104,21 @@ async function fetchAndSaveWallpaper() {
       fetchedAt: new Date().toISOString()
     };
 
-    // 3. Read current stored wallpapers
-    const fileData = await fs.readFile(DB_FILE, 'utf-8');
-    const db = JSON.parse(fileData);
+    // 3. Save (ignore if the wallpaper for today is already stored)
+    const result = insertWallpaper.run(
+      wallpaperRecord.id,
+      wallpaperRecord.title,
+      wallpaperRecord.copyright,
+      wallpaperRecord.date,
+      wallpaperRecord.url,
+      wallpaperRecord.url_uhd,
+      wallpaperRecord.fetchedAt
+    );
 
-    // 4. Avoid duplicates (Check if wallpaper for today already exists)
-    const exists = db.some((item) => item.id === wallpaperRecord.id);
-
-    if (exists) {
+    if (result.changes === 0) {
       console.log(`ℹ️ Wallpaper for ${wallpaperRecord.date} is already saved.`);
       return;
     }
-
-    // 5. Save updated list
-    db.unshift(wallpaperRecord); // Add newest wallpaper to the top
-    await fs.writeFile(DB_FILE, JSON.stringify(db, null, 2));
 
     console.log(`✅ Saved new wallpaper: "${wallpaperRecord.title}" (${wallpaperRecord.date})`);
   } catch (error) {
@@ -72,7 +127,7 @@ async function fetchAndSaveWallpaper() {
 }
 
 // Start app
-await initializeDatabase();
+await migrateLegacyData();
 
 // Run immediately on boot
 await fetchAndSaveWallpaper();
