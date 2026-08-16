@@ -1,6 +1,7 @@
 
 node_modules/
 wallpapers.db*
+wallpapers/
 .env
 .aider*
 *-lock.json

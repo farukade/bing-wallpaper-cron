@@ -2,11 +2,14 @@ import cron from 'node-cron';
 import fs from 'fs/promises';
 import path from 'path';
 import Database from 'better-sqlite3';
+import { setWallpaper } from 'wallpaper';
 
 // Configurations
 const BING_ENDPOINT = 'https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt=en-US';
+const API_ENDPOINT = process.env.WALLPAPER_API_URL || BING_ENDPOINT;
 const DB_FILE = path.join(process.cwd(), 'wallpapers.db');
 const LEGACY_JSON_FILE = path.join(process.cwd(), 'wallpapers.json');
+const IMAGE_DIR = path.join(process.cwd(), 'wallpapers');
 
 const db = new Database(DB_FILE);
 
@@ -74,14 +77,15 @@ async function migrateLegacyData() {
 }
 
 /**
- * Fetches the latest Bing wallpaper and appends it to local storage.
+ * Fetches the latest wallpaper and appends it to local storage.
+ * Also downloads and applies it as the desktop wallpaper.
  */
 async function fetchAndSaveWallpaper() {
-  console.log(`[${new Date().toISOString()}] Checking for latest Bing wallpaper...`);
+  console.log(`[${new Date().toISOString()}] Checking for latest wallpaper...`);
 
   try {
-    // 1. Query the Bing API
-    const response = await fetch(BING_ENDPOINT);
+    // 1. Query the API
+    const response = await fetch(API_ENDPOINT);
     if (!response.ok) {
       throw new Error(`HTTP Error: ${response.status}`);
     }
@@ -90,7 +94,7 @@ async function fetchAndSaveWallpaper() {
     const imageData = data.images?.[0];
 
     if (!imageData) {
-      throw new Error('No image returned from Bing API.');
+      throw new Error('No image returned from API.');
     }
 
     // 2. Parse the high-res 4K URL and image metadata
@@ -117,13 +121,38 @@ async function fetchAndSaveWallpaper() {
 
     if (result.changes === 0) {
       console.log(`ℹ️ Wallpaper for ${wallpaperRecord.date} is already saved.`);
-      return;
+    } else {
+      console.log(`✅ Saved new wallpaper: "${wallpaperRecord.title}" (${wallpaperRecord.date})`);
     }
 
-    console.log(`✅ Saved new wallpaper: "${wallpaperRecord.title}" (${wallpaperRecord.date})`);
+    // 4. Download the image (if not cached) and apply it as the desktop wallpaper
+    await applyDesktopWallpaper(wallpaperRecord);
   } catch (error) {
-    console.error('❌ Failed to fetch/save Bing wallpaper:', error.message);
+    console.error('❌ Failed to fetch/save wallpaper:', error.message);
   }
+}
+
+/**
+ * Downloads the high-res image (unless already cached) and sets it as the desktop wallpaper.
+ */
+async function applyDesktopWallpaper(wallpaperRecord) {
+  await fs.mkdir(IMAGE_DIR, { recursive: true });
+  const imagePath = path.join(IMAGE_DIR, `${wallpaperRecord.id}.jpg`);
+
+  try {
+    await fs.access(imagePath);
+  } catch {
+    const response = await fetch(wallpaperRecord.url_uhd);
+    if (!response.ok) {
+      throw new Error(`HTTP Error downloading image: ${response.status}`);
+    }
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+    await fs.writeFile(imagePath, buffer);
+  }
+
+  await setWallpaper(imagePath);
+  console.log(`🖥️ Desktop wallpaper applied: ${imagePath}`);
 }
 
 // Start app
