@@ -120,13 +120,14 @@ async function fetchAndSaveWallpaper() {
     );
 
     if (result.changes === 0) {
-      console.log(`ℹ️ Wallpaper for ${wallpaperRecord.date} is already saved.`);
-    } else {
-      console.log(`✅ Saved new wallpaper: "${wallpaperRecord.title}" (${wallpaperRecord.date})`);
+      console.log(`ℹ️ Wallpaper for ${wallpaperRecord.date} is already current. Skipping download.`);
+      return;
     }
 
-    // 4. Download the image (if not cached) and apply it as the desktop wallpaper
+    // 4. Download the image and apply it as the desktop wallpaper
     await applyDesktopWallpaper(wallpaperRecord);
+
+    console.log(`✅ Saved new wallpaper: "${wallpaperRecord.title}" (${wallpaperRecord.date})`);
   } catch (error) {
     console.error('❌ Failed to fetch/save wallpaper:', error.message);
   }
@@ -161,11 +162,11 @@ await migrateLegacyData();
 // Run immediately on boot
 await fetchAndSaveWallpaper();
 
-// Schedule cron task to run daily at 00:05 AM (Server time)
-// Cron Syntax: (Minute Hour Day-of-Month Month Day-of-Week)
-cron.schedule('5 0 * * *', async () => {
-  console.log('⏰ Running daily scheduled fetch...');
+// Schedule cron task to run every 30 minutes.
+// Downloads only apply when Bing publishes a new image (see fetchAndSaveWallpaper).
+cron.schedule('*/30 * * * *', async () => {
+  console.log('⏰ Running scheduled fetch...');
   await fetchAndSaveWallpaper();
 });
 
-console.log('🚀 Service started. Cron job running daily at 00:05 AM.');
+console.log('🚀 Service started. Cron job running every 30 minutes.');

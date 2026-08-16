@@ -2,6 +2,7 @@
 node_modules/
 wallpapers.db*
 wallpapers/
+autostart.log
 .env
 .aider*
 *-lock.json
