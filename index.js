@@ -119,15 +119,19 @@ async function fetchAndSaveWallpaper() {
       wallpaperRecord.fetchedAt
     );
 
-    if (result.changes === 0) {
-      console.log(`ℹ️ Wallpaper for ${wallpaperRecord.date} is already current. Skipping download.`);
-      return;
+    const isNew = result.changes === 1;
+
+    if (!isNew) {
+      console.log(`ℹ️ Wallpaper for ${wallpaperRecord.date} is already current.`);
     }
 
-    // 4. Download the image and apply it as the desktop wallpaper
+    // 4. Ensure the wallpaper is applied. Re-downloads only if not cached,
+    //    otherwise just re-applies the cached image.
     await applyDesktopWallpaper(wallpaperRecord);
 
-    console.log(`✅ Saved new wallpaper: "${wallpaperRecord.title}" (${wallpaperRecord.date})`);
+    if (isNew) {
+      console.log(`✅ Saved new wallpaper: "${wallpaperRecord.title}" (${wallpaperRecord.date})`);
+    }
   } catch (error) {
     console.error('❌ Failed to fetch/save wallpaper:', error.message);
   }
