@@ -168,9 +168,11 @@ await fetchAndSaveWallpaper();
 
 // Schedule cron task to run every 30 minutes.
 // Downloads only apply when Bing publishes a new image (see fetchAndSaveWallpaper).
+// suppressMissedWarning: macOS skips timer ticks while the Mac is asleep; on wake
+// node-cron logs a "missed execution" warning for each. That is expected, not an error.
 cron.schedule('*/30 * * * *', async () => {
   console.log('⏰ Running scheduled fetch...');
   await fetchAndSaveWallpaper();
-});
+}, { suppressMissedWarning: true });
 
 console.log('🚀 Service started. Cron job running every 30 minutes.');
